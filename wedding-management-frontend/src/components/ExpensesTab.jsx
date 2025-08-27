@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import useSpeechToText from '../hooks/useSpeechToText';
 import { useDispatch, useSelector } from 'react-redux';
-import { getExpenses, createExpense, updateExpense, deleteExpense, addExpenseItem, updateExpenseItem, deleteExpenseItem, getExpenseChartData } from '../store/slices/expenseSlice';
+import { getExpenses, createExpense, updateExpense, deleteExpense, addExpenseItem, updateExpenseItem, deleteExpenseItem, getExpenseChartData, downloadProofDocument, deleteProofDocument } from '../store/slices/expenseSlice';
 import { openExpenseModal, openExpenseItemModal } from '../store/slices/uiSlice';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -20,6 +20,8 @@ export default function ExpensesTab() {
     status: 'due',
     notes: ''
   });
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [editSelectedFile, setEditSelectedFile] = useState(null);
 
   const dispatch = useDispatch();
   const { expenses, chartData, isLoading, error } = useSelector((state) => state.expense);
@@ -40,8 +42,13 @@ export default function ExpensesTab() {
     if (!formData.category.trim()) return;
 
     try {
-      await dispatch(createExpense(formData)).unwrap();
+      const expenseData = { ...formData };
+      if (selectedFile && formData.status === 'paid') {
+        expenseData.proofDocument = selectedFile;
+      }
+      await dispatch(createExpense(expenseData)).unwrap();
       setFormData({ category: '', budget: 0, status: 'due', notes: '' });
+      setSelectedFile(null);
       setShowAddForm(false);
     } catch (err) {
       console.error('Failed to create expense category:', err);
@@ -70,14 +77,48 @@ export default function ExpensesTab() {
 
   const cancelEditCategory = () => {
     setEditingCategoryId(null);
+    setEditSelectedFile(null);
   };
 
   const saveEditCategory = async (expenseId) => {
     try {
-      await dispatch(updateExpense({ id: expenseId, expenseData: categoryEdits })).unwrap();
+      const expenseData = { ...categoryEdits };
+      if (editSelectedFile) {
+        expenseData.proofDocument = editSelectedFile;
+      }
+      await dispatch(updateExpense({ id: expenseId, expenseData })).unwrap();
       setEditingCategoryId(null);
+      setEditSelectedFile(null);
     } catch (err) {
       console.error('Failed to update category:', err);
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    setSelectedFile(file);
+  };
+
+  const handleEditFileSelect = (e) => {
+    const file = e.target.files[0];
+    setEditSelectedFile(file);
+  };
+
+  const handleDownloadProof = async (expenseId) => {
+    try {
+      await dispatch(downloadProofDocument(expenseId)).unwrap();
+    } catch (err) {
+      console.error('Failed to download proof document:', err);
+    }
+  };
+
+  const handleDeleteProof = async (expenseId) => {
+    if (window.confirm('Are you sure you want to delete this proof document?')) {
+      try {
+        await dispatch(deleteProofDocument(expenseId)).unwrap();
+      } catch (err) {
+        console.error('Failed to delete proof document:', err);
+      }
     }
   };
 
@@ -246,6 +287,25 @@ export default function ExpensesTab() {
                   placeholder="Any notes about this category"
                 />
               </div>
+              {formData.status === 'paid' && (
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Proof of Payment
+                    <span className="text-xs text-gray-500 ml-2">(PDF, Images - Max 10MB)</span>
+                  </label>
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.gif,.webp"
+                    onChange={handleFileSelect}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-rose-50 file:text-rose-700 hover:file:bg-rose-100"
+                  />
+                  {selectedFile && (
+                    <p className="mt-2 text-sm text-gray-600">
+                      Selected: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex gap-3">
               <button
@@ -431,6 +491,25 @@ export default function ExpensesTab() {
                         className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
                       />
                     </div>
+                    {categoryEdits.status === 'paid' && (
+                      <div className="sm:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Proof of Payment
+                          <span className="text-xs text-gray-500 ml-2">(PDF, Images - Max 10MB)</span>
+                        </label>
+                        <input
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png,.gif,.webp"
+                          onChange={handleEditFileSelect}
+                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-rose-50 file:text-rose-700 hover:file:bg-rose-100"
+                        />
+                        {editSelectedFile && (
+                          <p className="mt-2 text-sm text-gray-600">
+                            Selected: {editSelectedFile.name} ({(editSelectedFile.size / 1024 / 1024).toFixed(2)} MB)
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <div className="flex gap-2 sm:col-span-2">
                       <button onClick={() => saveEditCategory(expense._id)} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors duration-200">Save</button>
                       <button onClick={cancelEditCategory} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors duration-200">Cancel</button>
@@ -446,6 +525,24 @@ export default function ExpensesTab() {
                     </div>
                     <p className="text-gray-600">Expense: ₹{expense.budget?.toLocaleString() || '0'}</p>
                     {expense.notes ? <p className="text-sm text-gray-500 mt-1">{expense.notes}</p> : null}
+                    {expense.status === 'paid' && expense.proofDocument && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Proof:</span>
+                        <button
+                          onClick={() => handleDownloadProof(expense._id)}
+                          className="text-xs text-blue-600 hover:text-blue-800 underline"
+                        >
+                          📄 {expense.proofDocument.originalName}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProof(expense._id)}
+                          className="text-xs text-red-600 hover:text-red-800 ml-2"
+                          title="Delete proof document"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -184,6 +184,63 @@ export const getExpenseChartData = createAsyncThunk(
   }
 );
 
+// Download proof document
+export const downloadProofDocument = createAsyncThunk(
+  'expense/downloadProof',
+  async (id, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user?.token;
+      const response = await expenseService.downloadProofDocument(id, token);
+      
+      // Create blob URL and trigger download
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const contentDisposition = response.headers['content-disposition'];
+      const filename = contentDisposition
+        ? contentDisposition.split('filename=')[1].replace(/"/g, '')
+        : 'proof-document';
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      return { success: true };
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
+// Delete proof document
+export const deleteProofDocument = createAsyncThunk(
+  'expense/deleteProof',
+  async (id, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user?.token;
+      await expenseService.deleteProofDocument(id, token);
+      return id;
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
 export const expenseSlice = createSlice({
   name: 'expense',
   initialState,
@@ -331,6 +388,35 @@ export const expenseSlice = createSlice({
         state.chartData = action.payload;
       })
       .addCase(getExpenseChartData.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      .addCase(downloadProofDocument.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(downloadProofDocument.fulfilled, (state) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+      })
+      .addCase(downloadProofDocument.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      .addCase(deleteProofDocument.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(deleteProofDocument.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        // Remove proof document from the expense
+        const expenseIndex = state.expenses.findIndex(exp => exp._id === action.payload);
+        if (expenseIndex !== -1) {
+          state.expenses[expenseIndex].proofDocument = undefined;
+        }
+      })
+      .addCase(deleteProofDocument.rejected, (state, action) => {
         state.isLoading = false;
         state.isError = true;
         state.message = action.payload;

@@ -47,6 +47,27 @@ const expenseSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  proofDocument: {
+    filename: {
+      type: String,
+      trim: true
+    },
+    originalName: {
+      type: String,
+      trim: true
+    },
+    mimetype: {
+      type: String,
+      trim: true
+    },
+    size: {
+      type: Number
+    },
+    uploadDate: {
+      type: Date,
+      default: Date.now
+    }
+  },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

@@ -29,15 +29,54 @@ const getExpense = async (id, token) => {
   return response.data;
 };
 
-// Create new expense
+// Create new expense (with optional file upload)
 const createExpense = async (expenseData, token) => {
-  const response = await expenseAPI.post('/expenses', expenseData, authConfig(token));
-  return response.data;
+  if (expenseData.proofDocument) {
+    const formData = new FormData();
+    formData.append('category', expenseData.category);
+    formData.append('budget', expenseData.budget);
+    formData.append('status', expenseData.status);
+    formData.append('notes', expenseData.notes || '');
+    formData.append('proofDocument', expenseData.proofDocument);
+    
+    const config = {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data',
+      },
+    };
+    
+    const response = await expenseAPI.post('/expenses', formData, config);
+    return response.data;
+  } else {
+    const response = await expenseAPI.post('/expenses', expenseData, authConfig(token));
+    return response.data;
+  }
 };
 
-// Update expense
+// Update expense (with optional file upload)
 const updateExpense = async (id, expenseData, token) => {
-  const response = await expenseAPI.put(`/expenses/${id}`, expenseData, authConfig(token));
+  const formData = new FormData();
+  
+  // Append text fields
+  formData.append('category', expenseData.category);
+  formData.append('budget', expenseData.budget);
+  formData.append('status', expenseData.status);
+  formData.append('notes', expenseData.notes || '');
+  
+  // Append file if provided
+  if (expenseData.proofDocument) {
+    formData.append('proofDocument', expenseData.proofDocument);
+  }
+  
+  const config = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'multipart/form-data',
+    },
+  };
+  
+  const response = await expenseAPI.put(`/expenses/${id}`, formData, config);
   return response.data;
 };
 
@@ -77,6 +116,22 @@ const getExpenseChartData = async (token) => {
   return response.data;
 };
 
+// Download proof document
+const downloadProofDocument = async (id, token) => {
+  const config = {
+    ...authConfig(token),
+    responseType: 'blob',
+  };
+  const response = await expenseAPI.get(`/expenses/${id}/proof`, config);
+  return response;
+};
+
+// Delete proof document
+const deleteProofDocument = async (id, token) => {
+  const response = await expenseAPI.delete(`/expenses/${id}/proof`, authConfig(token));
+  return response.data;
+};
+
 const expenseService = {
   getExpenses,
   getExpense,
@@ -88,6 +143,8 @@ const expenseService = {
   deleteExpenseItem,
   getExpenseStats,
   getExpenseChartData,
+  downloadProofDocument,
+  deleteProofDocument,
 };
 
 export default expenseService;

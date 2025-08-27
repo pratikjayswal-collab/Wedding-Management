@@ -9,9 +9,12 @@ import {
   updateExpenseItem,
   deleteExpenseItem,
   getExpenseStats,
-  getExpenseChartData
+  getExpenseChartData,
+  downloadProofDocument,
+  deleteProofDocument
 } from '../controllers/expenseController.js';
 import { protect } from '../middleware/authMiddleware.js';
+import { uploadProofDocument, handleUploadError } from '../middleware/uploadMiddleware.js';
 
 const router = express.Router();
 
@@ -21,11 +24,11 @@ router.use(protect);
 // Expense CRUD operations
 router.route('/')
   .get(getExpenses)
-  .post(createExpense);
+  .post(uploadProofDocument.single('proofDocument'), handleUploadError, createExpense);
 
 router.route('/:id')
   .get(getExpense)
-  .put(updateExpense)
+  .put(uploadProofDocument.single('proofDocument'), handleUploadError, updateExpense)
   .delete(deleteExpense);
 
 // Expense item operations
@@ -35,6 +38,11 @@ router.route('/:id/items')
 router.route('/:id/items/:itemId')
   .put(updateExpenseItem)
   .delete(deleteExpenseItem);
+
+// Proof document operations
+router.route('/:id/proof')
+  .get(downloadProofDocument)
+  .delete(deleteProofDocument);
 
 // Statistics and charts
 router.get('/stats', getExpenseStats);

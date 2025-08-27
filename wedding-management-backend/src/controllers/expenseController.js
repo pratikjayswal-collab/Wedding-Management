@@ -1,4 +1,6 @@
 import Expense from '../models/Expense.js';
+import fs from 'fs';
+import path from 'path';
 
 // @desc    Get all expenses for a user
 // @route   GET /api/expenses
@@ -35,19 +37,38 @@ export const getExpense = async (req, res) => {
 export const createExpense = async (req, res) => {
   try {
     const { category, budget, status, notes } = req.body;
-
-    const expense = await Expense.create({
+    
+    const expenseData = {
       category,
       budget: budget || 0,
       status: status || 'due',
       notes: notes || '',
       items: [],
       userId: req.user._id,
-    });
+    };
+
+    // If file was uploaded, add proof document info
+    if (req.file) {
+      expenseData.proofDocument = {
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      };
+    }
+
+    const expense = await Expense.create(expenseData);
 
     res.status(201).json(expense);
   } catch (error) {
     console.error('Create expense error:', error);
+    // Delete uploaded file if there was an error
+    if (req.file) {
+      const filePath = path.join('uploads/proofs', req.file.filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -58,20 +79,48 @@ export const createExpense = async (req, res) => {
 export const updateExpense = async (req, res) => {
   try {
     const { category, budget, status, notes } = req.body;
+    const updateData = { category, budget, status, notes };
+
+    // If file was uploaded, add proof document info
+    if (req.file) {
+      updateData.proofDocument = {
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      };
+    }
+
+    // Find current expense to handle old file deletion
+    const currentExpense = await Expense.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!currentExpense) {
+      return res.status(404).json({ message: 'Expense not found' });
+    }
+
+    // If uploading new file and old file exists, delete old file
+    if (req.file && currentExpense.proofDocument?.filename) {
+      const oldFilePath = path.join('uploads/proofs', currentExpense.proofDocument.filename);
+      if (fs.existsSync(oldFilePath)) {
+        fs.unlinkSync(oldFilePath);
+      }
+    }
 
     const expense = await Expense.findOneAndUpdate(
       { _id: req.params.id, userId: req.user._id },
-      { category, budget, status, notes },
+      updateData,
       { new: true, runValidators: true }
     );
-
-    if (!expense) {
-      return res.status(404).json({ message: 'Expense not found' });
-    }
 
     res.json(expense);
   } catch (error) {
     console.error('Update expense error:', error);
+    // Delete uploaded file if there was an error
+    if (req.file) {
+      const filePath = path.join('uploads/proofs', req.file.filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -85,6 +134,14 @@ export const deleteExpense = async (req, res) => {
     
     if (!expense) {
       return res.status(404).json({ message: 'Expense not found' });
+    }
+
+    // Delete associated proof document file if it exists
+    if (expense.proofDocument?.filename) {
+      const filePath = path.join('uploads/proofs', expense.proofDocument.filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
     }
 
     res.json({ message: 'Expense category removed' });
@@ -207,6 +264,72 @@ export const getExpenseChartData = async (req, res) => {
     res.json(chartData);
   } catch (error) {
     console.error('Get expense chart data error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Download proof document
+// @route   GET /api/expenses/:id/proof
+// @access  Private
+export const downloadProofDocument = async (req, res) => {
+  try {
+    const expense = await Expense.findOne({ _id: req.params.id, userId: req.user._id });
+    
+    if (!expense) {
+      return res.status(404).json({ message: 'Expense not found' });
+    }
+
+    if (!expense.proofDocument?.filename) {
+      return res.status(404).json({ message: 'No proof document found' });
+    }
+
+    const filePath = path.join('uploads/proofs', expense.proofDocument.filename);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: 'File not found on server' });
+    }
+
+    // Set appropriate headers
+    res.setHeader('Content-Type', expense.proofDocument.mimetype);
+    res.setHeader('Content-Disposition', `attachment; filename="${expense.proofDocument.originalName}"`);
+    
+    // Stream the file
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+  } catch (error) {
+    console.error('Download proof document error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Delete proof document
+// @route   DELETE /api/expenses/:id/proof
+// @access  Private
+export const deleteProofDocument = async (req, res) => {
+  try {
+    const expense = await Expense.findOne({ _id: req.params.id, userId: req.user._id });
+    
+    if (!expense) {
+      return res.status(404).json({ message: 'Expense not found' });
+    }
+
+    if (!expense.proofDocument?.filename) {
+      return res.status(404).json({ message: 'No proof document found' });
+    }
+
+    // Delete file from filesystem
+    const filePath = path.join('uploads/proofs', expense.proofDocument.filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    // Remove proof document from database
+    expense.proofDocument = undefined;
+    await expense.save();
+
+    res.json({ message: 'Proof document deleted successfully' });
+  } catch (error) {
+    console.error('Delete proof document error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
