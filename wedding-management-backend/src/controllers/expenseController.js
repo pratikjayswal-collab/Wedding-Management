@@ -1,4 +1,7 @@
 import Expense from '../models/Expense.js';
+import fs from 'fs';
+import path from 'path';
+import { proofsDir } from '../middleware/uploadMiddleware.js';
 
 // @desc    Get all expenses for a user
 // @route   GET /api/expenses
@@ -207,6 +210,67 @@ export const getExpenseChartData = async (req, res) => {
     res.json(chartData);
   } catch (error) {
     console.error('Get expense chart data error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Upload proof file for an expense (PDF or image)
+// @route   POST /api/expenses/:id/proof
+// @access  Private
+export const uploadExpenseProof = async (req, res) => {
+  try {
+    const expense = await Expense.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!expense) {
+      return res.status(404).json({ message: 'Expense not found' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const { filename, mimetype, size, originalname } = req.file;
+
+    expense.proof = {
+      filename,
+      originalName: originalname,
+      mimeType: mimetype,
+      size,
+      uploadedAt: new Date()
+    };
+
+    await expense.save();
+    res.json(expense);
+  } catch (error) {
+    console.error('Upload expense proof error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Download/view proof file for an expense
+// @route   GET /api/expenses/:id/proof
+// @access  Private
+export const downloadExpenseProof = async (req, res) => {
+  try {
+    const expense = await Expense.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!expense) {
+      return res.status(404).json({ message: 'Expense not found' });
+    }
+
+    if (!expense.proof || !expense.proof.filename) {
+      return res.status(404).json({ message: 'No proof uploaded' });
+    }
+
+    const filePath = path.join(proofsDir, expense.proof.filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: 'Proof file missing on server' });
+    }
+
+    res.setHeader('Content-Type', expense.proof.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${expense.proof.originalName || 'proof'}"`);
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
+  } catch (error) {
+    console.error('Download expense proof error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };

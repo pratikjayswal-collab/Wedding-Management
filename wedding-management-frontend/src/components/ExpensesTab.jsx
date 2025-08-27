@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import useSpeechToText from '../hooks/useSpeechToText';
 import { useDispatch, useSelector } from 'react-redux';
-import { getExpenses, createExpense, updateExpense, deleteExpense, addExpenseItem, updateExpenseItem, deleteExpenseItem, getExpenseChartData } from '../store/slices/expenseSlice';
+import { getExpenses, createExpense, updateExpense, deleteExpense, addExpenseItem, updateExpenseItem, deleteExpenseItem, getExpenseChartData, uploadExpenseProof, downloadExpenseProof } from '../store/slices/expenseSlice';
 import { openExpenseModal, openExpenseItemModal } from '../store/slices/uiSlice';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -14,6 +14,8 @@ export default function ExpensesTab() {
   const [categoryEdits, setCategoryEdits] = useState({ category: '', budget: 0, status: 'due', notes: '' });
   const [editingItem, setEditingItem] = useState({ expenseId: null, itemId: null });
   const [itemEdits, setItemEdits] = useState({ name: '', cost: 0, description: '' });
+  const [formProofFile, setFormProofFile] = useState(null);
+  const [editProofFile, setEditProofFile] = useState(null);
   const [formData, setFormData] = useState({
     category: '',
     budget: 0,
@@ -40,8 +42,16 @@ export default function ExpensesTab() {
     if (!formData.category.trim()) return;
 
     try {
-      await dispatch(createExpense(formData)).unwrap();
+      const created = await dispatch(createExpense(formData)).unwrap();
+      if (formData.status === 'paid' && formProofFile) {
+        try {
+          await dispatch(uploadExpenseProof({ expenseId: created._id, file: formProofFile })).unwrap();
+        } catch (err) {
+          console.error('Failed to upload proof:', err);
+        }
+      }
       setFormData({ category: '', budget: 0, status: 'due', notes: '' });
+      setFormProofFile(null);
       setShowAddForm(false);
     } catch (err) {
       console.error('Failed to create expense category:', err);
@@ -75,9 +85,33 @@ export default function ExpensesTab() {
   const saveEditCategory = async (expenseId) => {
     try {
       await dispatch(updateExpense({ id: expenseId, expenseData: categoryEdits })).unwrap();
+      if (categoryEdits.status === 'paid' && editProofFile) {
+        try {
+          await dispatch(uploadExpenseProof({ expenseId, file: editProofFile })).unwrap();
+        } catch (err) {
+          console.error('Failed to upload proof:', err);
+        }
+      }
       setEditingCategoryId(null);
+      setEditProofFile(null);
     } catch (err) {
       console.error('Failed to update category:', err);
+    }
+  };
+
+  const handleDownloadProof = async (expenseId, filename = 'proof') => {
+    try {
+      const { blob } = await dispatch(downloadExpenseProof({ expenseId })).unwrap();
+      const url = window.URL.createObjectURL(new Blob([blob]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download proof:', err);
     }
   };
 
@@ -236,6 +270,17 @@ export default function ExpensesTab() {
                   <option value="paid">Paid</option>
                 </select>
               </div>
+              {formData.status === 'paid' && (
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Upload Proof (PDF or Image)</label>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => setFormProofFile(e.target.files?.[0] || null)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+                  />
+                </div>
+              )}
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
                 <textarea
@@ -422,6 +467,17 @@ export default function ExpensesTab() {
                         <option value="paid">Paid</option>
                       </select>
                     </div>
+                    {categoryEdits.status === 'paid' && (
+                      <div className="sm:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Upload Proof (PDF or Image)</label>
+                        <input
+                          type="file"
+                          accept="image/*,application/pdf"
+                          onChange={(e) => setEditProofFile(e.target.files?.[0] || null)}
+                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+                        />
+                      </div>
+                    )}
                     <div className="sm:col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
                       <textarea
@@ -443,6 +499,14 @@ export default function ExpensesTab() {
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${expense.status === 'paid' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
                         {expense.status === 'paid' ? 'Paid' : 'Due'}
                       </span>
+                      {expense.status === 'paid' && expense.proof?.filename && (
+                        <button
+                          onClick={() => handleDownloadProof(expense._id, expense.proof?.originalName || 'proof')}
+                          className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg"
+                        >
+                          View Proof
+                        </button>
+                      )}
                     </div>
                     <p className="text-gray-600">Expense: ₹{expense.budget?.toLocaleString() || '0'}</p>
                     {expense.notes ? <p className="text-sm text-gray-500 mt-1">{expense.notes}</p> : null}

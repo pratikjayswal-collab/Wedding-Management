@@ -30,6 +30,45 @@ export const getExpenses = createAsyncThunk(
   }
 );
 
+// Upload proof file for expense
+export const uploadExpenseProof = createAsyncThunk(
+  'expense/uploadProof',
+  async ({ expenseId, file }, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user?.token;
+      return await expenseService.uploadExpenseProof(expenseId, file, token);
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
+// Download proof file (returns blob)
+export const downloadExpenseProof = createAsyncThunk(
+  'expense/downloadProof',
+  async ({ expenseId }, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user?.token;
+      const blob = await expenseService.downloadExpenseProof(expenseId, token);
+      return { expenseId, blob };
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
 // Create new expense
 export const createExpense = createAsyncThunk(
   'expense/create',
@@ -331,6 +370,34 @@ export const expenseSlice = createSlice({
         state.chartData = action.payload;
       })
       .addCase(getExpenseChartData.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      .addCase(uploadExpenseProof.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(uploadExpenseProof.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        // Replace updated expense
+        state.expenses = state.expenses.map((expense) =>
+          expense._id === action.payload._id ? action.payload : expense
+        );
+      })
+      .addCase(uploadExpenseProof.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      .addCase(downloadExpenseProof.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(downloadExpenseProof.fulfilled, (state) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+      })
+      .addCase(downloadExpenseProof.rejected, (state, action) => {
         state.isLoading = false;
         state.isError = true;
         state.message = action.payload;

@@ -9,9 +9,12 @@ import {
   updateExpenseItem,
   deleteExpenseItem,
   getExpenseStats,
-  getExpenseChartData
+  getExpenseChartData,
+  uploadExpenseProof,
+  downloadExpenseProof
 } from '../controllers/expenseController.js';
 import { protect } from '../middleware/authMiddleware.js';
+import { uploadProof } from '../middleware/uploadMiddleware.js';
 
 const router = express.Router();
 
@@ -39,5 +42,9 @@ router.route('/:id/items/:itemId')
 // Statistics and charts
 router.get('/stats', getExpenseStats);
 router.get('/chart-data', getExpenseChartData);
+
+// Proof upload and download
+router.post('/:id/proof', uploadProof.single('proof'), uploadExpenseProof);
+router.get('/:id/proof', downloadExpenseProof);
 
 export default router;

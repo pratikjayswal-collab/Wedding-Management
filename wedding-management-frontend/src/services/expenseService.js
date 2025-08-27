@@ -17,6 +17,13 @@ const authConfig = (token) => ({
   },
 });
 
+// Multipart auth config (do not set Content-Type to preserve boundary)
+const multipartAuthConfig = (token) => ({
+  headers: {
+    Authorization: `Bearer ${token}`,
+  },
+});
+
 // Get all expenses
 const getExpenses = async (token) => {
   const response = await expenseAPI.get('/expenses', authConfig(token));
@@ -77,6 +84,23 @@ const getExpenseChartData = async (token) => {
   return response.data;
 };
 
+// Upload proof file for an expense
+const uploadExpenseProof = async (expenseId, file, token) => {
+  const formData = new FormData();
+  formData.append('proof', file);
+  const response = await expenseAPI.post(`/expenses/${expenseId}/proof`, formData, multipartAuthConfig(token));
+  return response.data;
+};
+
+// Download proof file (returns blob)
+const downloadExpenseProof = async (expenseId, token) => {
+  const response = await expenseAPI.get(`/expenses/${expenseId}/proof`, {
+    ...authConfig(token),
+    responseType: 'blob',
+  });
+  return response.data;
+};
+
 const expenseService = {
   getExpenses,
   getExpense,
@@ -88,6 +112,8 @@ const expenseService = {
   deleteExpenseItem,
   getExpenseStats,
   getExpenseChartData,
+  uploadExpenseProof,
+  downloadExpenseProof,
 };
 
 export default expenseService;

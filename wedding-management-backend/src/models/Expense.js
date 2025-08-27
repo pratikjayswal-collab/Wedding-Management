@@ -38,6 +38,13 @@ const expenseSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  proof: {
+    filename: { type: String, default: null },
+    originalName: { type: String, default: null },
+    mimeType: { type: String, default: null },
+    size: { type: Number, default: null },
+    uploadedAt: { type: Date, default: null }
+  },
   items: [itemSchema],
   total: {
     type: Number,
