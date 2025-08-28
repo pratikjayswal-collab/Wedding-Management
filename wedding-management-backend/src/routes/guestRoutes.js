@@ -21,6 +21,12 @@ router.route('/')
   .get(getGuests)
   .post(createGuest);
 
+// Stats route (must come before /:id routes)
+router.get('/stats', getGuestStats);
+
+// Special guest operations
+router.patch('/bulk-invitation', bulkUpdateInvitation);
+
 router.route('/:id')
   .get(getGuest)
   .put(updateGuest)
@@ -28,7 +34,5 @@ router.route('/:id')
 
 // Special guest operations
 router.patch('/:id/invitation', toggleInvitation);
-router.patch('/bulk-invitation', bulkUpdateInvitation);
-router.get('/stats', getGuestStats);
 
 export default router;

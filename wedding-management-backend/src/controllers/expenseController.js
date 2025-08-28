@@ -212,6 +212,15 @@ export const deleteExpenseItem = async (req, res) => {
 // @access  Private
 export const getExpenseStats = async (req, res) => {
   try {
+    // First, let's see what expenses exist for this user
+    const allExpenses = await Expense.find({ userId: req.user._id });
+    console.log('All expenses for user:', allExpenses.map(e => ({
+      category: e.category,
+      status: e.status,
+      budget: e.budget,
+      total: e.total
+    })));
+
     const stats = await Expense.aggregate([
       { $match: { userId: req.user._id } },
       {
@@ -220,17 +229,24 @@ export const getExpenseStats = async (req, res) => {
           totalCategories: { $sum: 1 },
           totalBudget: { $sum: '$budget' },
           totalSpent: { $sum: '$total' },
-          totalItems: { $sum: { $size: '$items' } }
+          totalItems: { $sum: { $size: '$items' } },
+          paid: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, '$budget', 0] } },
+          due: { $sum: { $cond: [{ $eq: ['$status', 'due'] }, '$budget', 0] } }
         }
       }
     ]);
 
-    res.json(stats[0] || {
+    const result = stats[0] || {
       totalCategories: 0,
       totalBudget: 0,
       totalSpent: 0,
-      totalItems: 0
-    });
+      totalItems: 0,
+      paid: 0,
+      due: 0
+    };
+
+    console.log('Calculated stats:', result);
+    res.json(result);
   } catch (error) {
     console.error('Get expense stats error:', error);
     res.status(500).json({ message: 'Server error' });

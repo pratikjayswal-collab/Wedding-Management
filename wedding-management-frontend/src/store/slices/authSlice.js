@@ -72,6 +72,82 @@ export const getProfile = createAsyncThunk(
   }
 );
 
+// Update user profile
+export const updateProfile = createAsyncThunk(
+  'auth/updateProfile',
+  async (userData, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user?.token;
+      return await authService.updateProfile(userData, token);
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
+// Change password
+export const changePassword = createAsyncThunk(
+  'auth/changePassword',
+  async (passwordData, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user?.token;
+      return await authService.changePassword(passwordData, token);
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
+// Delete account
+export const deleteAccount = createAsyncThunk(
+  'auth/deleteAccount',
+  async (_, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user?.token;
+      return await authService.deleteAccount(token);
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
+// Export data
+export const exportData = createAsyncThunk(
+  'auth/exportData',
+  async (_, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.user?.token;
+      return await authService.exportData(token);
+    } catch (error) {
+      const message =
+        (error.response &&
+          error.response.data &&
+          error.response.data.message) ||
+        error.message ||
+        error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
 export const authSlice = createSlice({
   name: 'auth',
   initialState,
@@ -129,6 +205,58 @@ export const authSlice = createSlice({
         state.user = action.payload;
       })
       .addCase(getProfile.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      .addCase(updateProfile.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(updateProfile.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        state.user = action.payload;
+      })
+      .addCase(updateProfile.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      .addCase(changePassword.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(changePassword.fulfilled, (state) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        state.message = 'Password updated successfully';
+      })
+      .addCase(changePassword.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      .addCase(deleteAccount.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(deleteAccount.fulfilled, (state) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        state.user = null;
+        state.message = 'Account deleted successfully';
+      })
+      .addCase(deleteAccount.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      .addCase(exportData.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(exportData.fulfilled, (state) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+      })
+      .addCase(exportData.rejected, (state, action) => {
         state.isLoading = false;
         state.isError = true;
         state.message = action.payload;

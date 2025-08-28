@@ -44,8 +44,8 @@ export default function OverviewTab() {
   const computedExpenseStats = expenseStats || {
     totalCategories: expenses.length,
     totalBudget: expenses.reduce((sum, e) => sum + (e.budget || 0), 0),
-    paidAmount: expenses.reduce((sum, e) => sum + ((e.status === 'paid' ? (e.budget || 0) : 0)), 0),
-    dueAmount: expenses.reduce((sum, e) => sum + ((e.status === 'due' ? (e.budget || 0) : 0)), 0),
+    paid: expenses.reduce((sum, e) => sum + ((e.status === 'paid' ? (e.budget || 0) : 0)), 0),
+    due: expenses.reduce((sum, e) => sum + ((e.status === 'due' ? (e.budget || 0) : 0)), 0),
   };
 
   const computedRequirementStats = requirementStats || {
@@ -99,8 +99,8 @@ export default function OverviewTab() {
   value={<span className="text-xl">{`₹${(computedExpenseStats.totalBudget || 0).toLocaleString()}`}</span>} 
   color="text-blue-600" 
 />
-  <StatCard title={<div style={{ minHeight: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Paid</div>} value={`₹${(computedExpenseStats.paidAmount || 0).toLocaleString()}`} color="text-green-600" />
-  <StatCard title={<div style={{ minHeight: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Due</div>} value={`₹${(computedExpenseStats.dueAmount || 0).toLocaleString()}`} color="text-yellow-600" />
+  <StatCard title={<div style={{ minHeight: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Paid</div>} value={`₹${(computedExpenseStats.paid || 0).toLocaleString()}`} color="text-green-600" />
+  <StatCard title={<div style={{ minHeight: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Due</div>} value={`₹${(computedExpenseStats.due || 0).toLocaleString()}`} color="text-yellow-600" />
         </div>
 
         {/* toggle to view charts */}

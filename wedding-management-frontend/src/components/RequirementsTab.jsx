@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import useSpeechToText from '../hooks/useSpeechToText';
 import { useDispatch, useSelector } from 'react-redux';
 import { getRequirements, createRequirement, updateRequirement, deleteRequirement, toggleRequirementStatus, bulkUpdateRequirementStatus, getRequirementsByStatus } from '../store/slices/requirementSlice';
 import { openRequirementModal, toggleRequirementSelection, selectAllRequirements, clearRequirementSelection } from '../store/slices/uiSlice';
@@ -23,64 +24,12 @@ export default function RequirementsTab() {
     category: '',
     dueDate: ''
   });
-  const [isRecordingTask, setIsRecordingTask] = useState(false);
-  const [speechError, setSpeechError] = useState('');
 
-  // Gemini API speech-to-text functionality
-  const startRecording = async () => {
-    try {
-      setSpeechError('');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      const chunks = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          chunks.push(e.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        try {
-          const blob = new Blob(chunks, { type: 'audio/webm' });
-          const formData = new FormData();
-          formData.append('audio', blob, 'speech.webm');
-          formData.append('lang', 'en-IN');
-
-          const response = await fetch('http://localhost:5000/api/users/transcribe', {
-            method: 'POST',
-            body: formData,
-          });
-
-          const data = await response.json();
-          if (!response.ok) throw new Error(data?.message || 'Transcription failed');
-
-          if (data?.text) {
-            setFormData(prev => ({ ...prev, item: data.text }));
-          }
-        } catch (error) {
-          setSpeechError(`Transcription error: ${error.message}`);
-        } finally {
-          setIsRecordingTask(false);
-        }
-      };
-
-      mediaRecorder.start();
-      setIsRecordingTask(true);
-
-      // Stop recording after 10 seconds
-      setTimeout(() => {
-        if (mediaRecorder.state !== 'inactive') {
-          mediaRecorder.stop();
-          stream.getTracks().forEach(track => track.stop());
-        }
-      }, 10000);
-
-    } catch (error) {
-      setSpeechError('Microphone permission denied');
-      setIsRecordingTask(false);
-    }
-  };
+  const micTask = useSpeechToText({ 
+    lang: 'en-IN',
+    silenceThreshold: 2000, // 2 seconds of silence to auto-stop
+    onResult: (t) => setFormData(prev => ({ ...prev, item: t })) 
+  });
 
   const dispatch = useDispatch();
   const { requirements, isLoading, error } = useSelector((state) => state.requirement);
@@ -236,22 +185,22 @@ export default function RequirementsTab() {
                   />
                   <button
   type="button"
-  onClick={() => isRecordingTask ? null : startRecording()}
-  disabled={!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || isRecordingTask}
+  onClick={micTask.start}
+  disabled={!micTask.supported || micTask.isListening}
   className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all duration-200 ${
-    isRecordingTask 
-      ? 'bg-red-100 hover:bg-red-200 text-red-600' 
+    micTask.isListening 
+      ? 'bg-red-100 text-red-600' 
       : 'hover:bg-gray-50 text-gray-600'
-  } ${!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia ? 'opacity-50 cursor-not-allowed' : ''}`}
+  } ${!micTask.supported ? 'opacity-50 cursor-not-allowed' : ''}`}
   title={
-    !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia 
-      ? 'Microphone not available' 
-      : isRecordingTask 
-      ? 'Stop recording' 
-      : 'Start speaking'
+    !micTask.supported 
+      ? 'Microphone access not supported' 
+      : micTask.isListening 
+      ? 'Listening...' 
+      : 'Click to start speaking'
   }
 >
-  {isRecordingTask ? (
+  {micTask.isListening ? (
     <div className="relative">
       <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24" className="w-5 h-5">
         <path d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9A2.25 2.25 0 0118.75 7.5v9A2.25 2.25 0 0116.5 18.75h-9A2.25 2.25 0 015.25 16.5v-9z" />

@@ -44,11 +44,62 @@ const getProfile = async (token) => {
   return response.data;
 };
 
+// Update user profile
+const updateProfile = async (userData, token) => {
+  const config = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+  const response = await authAPI.put('/users/profile', userData, config);
+  if (response.data) {
+    localStorage.setItem('user', JSON.stringify(response.data));
+  }
+  return response.data;
+};
+
+// Change password
+const changePassword = async (passwordData, token) => {
+  const config = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+  const response = await authAPI.put('/users/change-password', passwordData, config);
+  return response.data;
+};
+
+// Delete account
+const deleteAccount = async (token) => {
+  const config = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+  const response = await authAPI.delete('/users/profile', config);
+  return response.data;
+};
+
+// Export user data
+const exportData = async (token) => {
+  const config = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+  const response = await authAPI.get('/users/export-data', config);
+  return response.data;
+};
+
 const authService = {
   register,
   login,
   logout,
   getProfile,
+  updateProfile,
+  changePassword,
+  deleteAccount,
+  exportData,
 };
 
 export default authService;

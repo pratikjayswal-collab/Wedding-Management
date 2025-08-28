@@ -22,6 +22,13 @@ router.route('/')
   .get(getRequirements)
   .post(createRequirement);
 
+// Stats route (must come before /:id routes)
+router.get('/stats', getRequirementStats);
+
+// Special requirement operations
+router.patch('/bulk-status', bulkUpdateRequirementStatus);
+router.get('/status/:status', getRequirementsByStatus);
+
 router.route('/:id')
   .get(getRequirement)
   .put(updateRequirement)
@@ -29,8 +36,5 @@ router.route('/:id')
 
 // Special requirement operations
 router.patch('/:id/status', toggleRequirementStatus);
-router.patch('/bulk-status', bulkUpdateRequirementStatus);
-router.get('/status/:status', getRequirementsByStatus);
-router.get('/stats', getRequirementStats);
 
 export default router;

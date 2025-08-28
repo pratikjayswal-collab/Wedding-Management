@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import bcrypt from 'bcryptjs';
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -88,6 +89,132 @@ export const getUserProfile = async (req, res) => {
     }
   } catch (error) {
     console.error('Get profile error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Update user profile
+// @route   PUT /api/users/profile
+// @access  Private
+export const updateUserProfile = async (req, res) => {
+  try {
+    const { name, email } = req.body;
+
+    // Check if email is already taken by another user
+    if (email) {
+      const existingUser = await User.findOne({ email, _id: { $ne: req.user._id } });
+      if (existingUser) {
+        return res.status(400).json({ message: 'Email is already in use' });
+      }
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    user.name = name || user.name;
+    user.email = email || user.email;
+
+    const updatedUser = await user.save();
+
+    res.json({
+      _id: updatedUser._id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      token: generateToken(updatedUser._id),
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Change user password
+// @route   PUT /api/users/change-password
+// @access  Private
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Verify current password
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+
+    await user.save();
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Delete user account
+// @route   DELETE /api/users/profile
+// @access  Private
+export const deleteUserAccount = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    await User.findByIdAndDelete(req.user._id);
+
+    res.json({ message: 'Account deleted successfully' });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Export user data
+// @route   GET /api/users/export-data
+// @access  Private
+export const exportUserData = async (req, res) => {
+  try {
+    // Import models here to avoid circular dependencies
+    const Expense = (await import('../models/Expense.js')).default;
+    const Guest = (await import('../models/Guest.js')).default;
+    const Requirement = (await import('../models/Requirement.js')).default;
+
+    const userId = req.user._id;
+
+    // Get all user data
+    const [expenses, guests, requirements] = await Promise.all([
+      Expense.find({ user: userId }),
+      Guest.find({ user: userId }),
+      Requirement.find({ user: userId })
+    ]);
+
+    const exportData = {
+      user: {
+        _id: req.user._id,
+        name: req.user.name,
+        email: req.user.email,
+        createdAt: req.user.createdAt
+      },
+      expenses,
+      guests,
+      requirements,
+      exportDate: new Date().toISOString()
+    };
+
+    res.json(exportData);
+  } catch (error) {
+    console.error('Export data error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };

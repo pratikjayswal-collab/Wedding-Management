@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import useSpeechToText from '../hooks/useSpeechToText';
 import { useDispatch, useSelector } from 'react-redux';
 import { getExpenses, createExpense, updateExpense, deleteExpense, addExpenseItem, updateExpenseItem, deleteExpenseItem, getExpenseChartData } from '../store/slices/expenseSlice';
 import { openExpenseModal, openExpenseItemModal } from '../store/slices/uiSlice';
@@ -21,68 +22,16 @@ export default function ExpensesTab() {
     notes: '',
     documents: []
   });
-  const [isRecordingCategory, setIsRecordingCategory] = useState(false);
-  const [speechError, setSpeechError] = useState('');
 
   const dispatch = useDispatch();
   const { expenses, chartData, isLoading, error } = useSelector((state) => state.expense);
   const { isExpenseModalOpen, isExpenseItemModalOpen } = useSelector((state) => state.ui);
 
-  // Gemini API speech-to-text functionality
-  const startRecording = async () => {
-    try {
-      setSpeechError('');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      const chunks = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          chunks.push(e.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        try {
-          const blob = new Blob(chunks, { type: 'audio/webm' });
-          const formData = new FormData();
-          formData.append('audio', blob, 'speech.webm');
-          formData.append('lang', 'en-IN');
-
-          const response = await fetch('http://localhost:5000/api/users/transcribe', {
-            method: 'POST',
-            body: formData,
-          });
-
-          const data = await response.json();
-          if (!response.ok) throw new Error(data?.message || 'Transcription failed');
-
-          if (data?.text) {
-            setFormData(prev => ({ ...prev, category: data.text }));
-          }
-        } catch (error) {
-          setSpeechError(`Transcription error: ${error.message}`);
-        } finally {
-          setIsRecordingCategory(false);
-        }
-      };
-
-      mediaRecorder.start();
-      setIsRecordingCategory(true);
-
-      // Stop recording after 10 seconds
-      setTimeout(() => {
-        if (mediaRecorder.state !== 'inactive') {
-          mediaRecorder.stop();
-          stream.getTracks().forEach(track => track.stop());
-        }
-      }, 10000);
-
-    } catch (error) {
-      setSpeechError('Microphone permission denied');
-      setIsRecordingCategory(false);
-    }
-  };
+  const micCategory = useSpeechToText({ 
+    lang: 'en-IN',
+    silenceThreshold: 2000, // 2 seconds of silence to auto-stop
+    onResult: (t) => setFormData(prev => ({ ...prev, category: t })) 
+  });
 
   useEffect(() => {
     dispatch(getExpenses());
@@ -246,29 +195,26 @@ export default function ExpensesTab() {
                   />
                   <button 
                     type="button" 
-                    onClick={isRecordingCategory ? () => {
-                      setIsRecordingCategory(false);
-                      // Stop the ongoing recording if any
-                      if (window.mediaRecorder && window.mediaRecorder.state !== 'inactive') {
-                        window.mediaRecorder.stop();
-                        window.mediaRecorder.stream.getTracks().forEach(track => track.stop());
-                      }
-                    } : startRecording} 
-                    disabled={!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !navigator.mediaDevices.getUserMedia({ audio: true })}
+                    onClick={micCategory.start} 
+                    disabled={!micCategory.supported || micCategory.isListening || micCategory.isRateLimited}
                     className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all duration-200 ${
-                      isRecordingCategory 
-                        ? 'bg-red-100 hover:bg-red-200 text-red-600' 
+                      micCategory.isListening 
+                        ? 'bg-red-100 text-red-600' 
+                        : micCategory.isRateLimited
+                        ? 'bg-orange-100 text-orange-600'
                         : 'hover:bg-gray-50 text-gray-600'
-                    } ${!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !navigator.mediaDevices.getUserMedia({ audio: true }) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                          title={
-                        !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !navigator.mediaDevices.getUserMedia({ audio: true }) 
-                          ? 'Microphone not available' 
-                          : isRecordingCategory 
-                          ? 'Stop recording' 
-                          : 'Start speaking'
-                      }
+                    } ${(!micCategory.supported || micCategory.isRateLimited) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    title={
+                      !micCategory.supported 
+                        ? 'Microphone access not supported' 
+                        : micCategory.isRateLimited
+                        ? 'API quota exceeded. Please wait 30 seconds.'
+                        : micCategory.isListening 
+                        ? 'Listening...' 
+                        : 'Click to start speaking'
+                    }
                   >
-                    {isRecordingCategory ? (
+                    {micCategory.isListening ? (
                       <div className="relative">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                           <path d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9A2.25 2.25 0 0118.75 7.5v9A2.25 2.25 0 0116.5 18.75h-9A2.25 2.25 0 015.25 16.5v-9z" />
@@ -284,9 +230,9 @@ export default function ExpensesTab() {
                     )}
                   </button>
                 </div>
-                {speechError && (
+                {micCategory.error && (
                   <p className="mt-1 text-sm text-amber-600">
-                    Speech Error: {speechError}
+                    Voice Input Error: {micCategory.error}
                   </p>
                 )}
               </div>
