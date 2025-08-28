@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import useSpeechToText from '../../hooks/useSpeechToText';
 import { useDispatch, useSelector } from 'react-redux';
 import { createGuest, updateGuest } from '../../store/slices/guestSlice';
 import { closeGuestModal, setEditingGuest } from '../../store/slices/uiSlice';
@@ -12,6 +11,10 @@ export default function AddGuestModal() {
     tags: [],
   });
   const [errors, setErrors] = useState({});
+  const [isRecordingName, setIsRecordingName] = useState(false);
+  const [isRecordingContact, setIsRecordingContact] = useState(false);
+  const [speechError, setSpeechError] = useState('');
+
   const defaultTags = [
     'Friend',
     'Relative',
@@ -61,15 +64,73 @@ export default function AddGuestModal() {
     return out.slice(0, 15);
   };
 
-  const micName = useSpeechToText({ 
-    lang: 'en-IN',
-    onResult: (t) => setFormData(prev => ({ ...prev, name: t })) 
-  });
-  
-  const micContact = useSpeechToText({ 
-    lang: 'en-IN',
-    onResult: (t) => setFormData(prev => ({ ...prev, contact: normalizeSpeechToDigits(t) })) 
-  });
+  // Gemini API speech-to-text functionality
+  const startRecording = async (field) => {
+    try {
+      setSpeechError('');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const chunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        try {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          const formData = new FormData();
+          formData.append('audio', blob, 'speech.webm');
+          formData.append('lang', 'en-IN');
+
+          const response = await fetch('http://localhost:5000/api/users/transcribe', {
+            method: 'POST',
+            body: formData,
+          });
+
+          const data = await response.json();
+          if (!response.ok) throw new Error(data?.message || 'Transcription failed');
+
+          if (data?.text) {
+            if (field === 'name') {
+              setFormData(prev => ({ ...prev, name: data.text }));
+            } else if (field === 'contact') {
+              setFormData(prev => ({ ...prev, contact: normalizeSpeechToDigits(data.text) }));
+            }
+          }
+        } catch (error) {
+          setSpeechError(`Transcription error: ${error.message}`);
+        } finally {
+          if (field === 'name') setIsRecordingName(false);
+          else if (field === 'contact') setIsRecordingContact(false);
+        }
+      };
+
+      mediaRecorder.start();
+      if (field === 'name') setIsRecordingName(true);
+      else if (field === 'contact') setIsRecordingContact(true);
+
+      // Stop recording after 10 seconds
+      setTimeout(() => {
+        if (mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+          stream.getTracks().forEach(track => track.stop());
+        }
+      }, 10000);
+
+    } catch (error) {
+      setSpeechError('Microphone permission denied');
+      if (field === 'name') setIsRecordingName(false);
+      else if (field === 'contact') setIsRecordingContact(false);
+    }
+  };
+
+  const stopRecording = (field) => {
+    if (field === 'name') setIsRecordingName(false);
+    else if (field === 'contact') setIsRecordingContact(false);
+  };
 
   useEffect(() => {
     if (editingGuest) {
@@ -189,22 +250,22 @@ export default function AddGuestModal() {
               />
               <button 
                 type="button" 
-                onClick={micName.isListening ? micName.stop : micName.start} 
-                disabled={!micName.supported}
+                onClick={() => startRecording('name')} 
+                disabled={isLoading || isRecordingName}
                 className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all duration-200 ${
-                  micName.isListening 
+                  isRecordingName 
                     ? 'bg-red-100 hover:bg-red-200 text-red-600' 
                     : 'hover:bg-gray-50 text-gray-600'
-                } ${!micName.supported ? 'opacity-50 cursor-not-allowed' : ''}`}
+                } ${!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia ? 'opacity-50 cursor-not-allowed' : ''}`}
                 title={
-                  !micName.supported 
-                    ? 'Speech recognition not supported' 
-                    : micName.isListening 
-                    ? 'Stop listening' 
+                  !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia 
+                    ? 'Microphone not available' 
+                    : isRecordingName 
+                    ? 'Stop speaking' 
                     : 'Start speaking'
                 }
               >
-                {micName.isListening ? (
+                {isRecordingName ? (
                   <div className="relative">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                       <path d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9A2.25 2.25 0 0118.75 7.5v9A2.25 2.25 0 0116.5 18.75h-9A2.25 2.25 0 015.25 16.5v-9z" />
@@ -223,9 +284,9 @@ export default function AddGuestModal() {
             {errors.name && (
               <p className="mt-1 text-sm text-red-600">{errors.name}</p>
             )}
-            {micName.error && (
+            {speechError && (
               <p className="mt-1 text-sm text-amber-600">
-                Speech Error: {micName.error}
+                Speech Error: {speechError}
               </p>
             )}
           </div>
@@ -248,22 +309,22 @@ export default function AddGuestModal() {
               />
               <button 
                 type="button" 
-                onClick={micContact.isListening ? micContact.stop : micContact.start} 
-                disabled={!micContact.supported}
+                onClick={() => startRecording('contact')} 
+                disabled={isLoading || isRecordingContact}
                 className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all duration-200 ${
-                  micContact.isListening 
+                  isRecordingContact 
                     ? 'bg-red-100 hover:bg-red-200 text-red-600' 
                     : 'hover:bg-gray-50 text-gray-600'
-                } ${!micContact.supported ? 'opacity-50 cursor-not-allowed' : ''}`}
+                } ${!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia ? 'opacity-50 cursor-not-allowed' : ''}`}
                 title={
-                  !micContact.supported 
-                    ? 'Speech recognition not supported' 
-                    : micContact.isListening 
-                    ? 'Stop listening' 
+                  !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia 
+                    ? 'Microphone not available' 
+                    : isRecordingContact 
+                    ? 'Stop speaking' 
                     : 'Start speaking'
                 }
               >
-                {micContact.isListening ? (
+                {isRecordingContact ? (
                   <div className="relative">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                       <path d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9A2.25 2.25 0 0118.75 7.5v9A2.25 2.25 0 0116.5 18.75h-9A2.25 2.25 0 015.25 16.5v-9z" />
@@ -282,9 +343,9 @@ export default function AddGuestModal() {
             {errors.contact && (
               <p className="mt-1 text-sm text-red-600">{errors.contact}</p>
             )}
-            {micContact.error && (
+            {speechError && (
               <p className="mt-1 text-sm text-amber-600">
-                Speech Error: {micContact.error}
+                Speech Error: {speechError}
               </p>
             )}
           </div>
@@ -362,10 +423,10 @@ export default function AddGuestModal() {
           </div>
 
           {/* Browser Support Warning */}
-          {!micName.supported && (
+          {(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
               <p className="text-sm text-amber-800">
-                Speech recognition is not supported in this browser. Please use Chrome or Safari for voice input.
+                Microphone access is not supported in this browser. Please use a modern browser with microphone permissions for voice input.
               </p>
             </div>
           )}

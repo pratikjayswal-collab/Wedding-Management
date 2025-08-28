@@ -36,14 +36,32 @@ export const createExpense = async (req, res) => {
   try {
     const { category, budget, status, notes } = req.body;
 
-    const expense = await Expense.create({
+    const files = Array.isArray(req.files) ? req.files : [];
+    const documents = files.map(f => {
+      // Path exposed via /uploads should be relative from uploads root
+      const pathParts = f.path.split('uploads');
+      const relative = pathParts.length > 1 ? `/uploads${pathParts[1].replace(/\\/g, '/')}` : f.path;
+      return {
+        filename: f.filename,
+        originalName: f.originalname,
+        path: relative,
+        size: f.size,
+        mimeType: f.mimetype,
+      };
+    });
+
+    const expenseData = {
       category,
       budget: budget || 0,
-      status: status || 'due',
       notes: notes || '',
       items: [],
+      documents,
       userId: req.user._id,
-    });
+    };
+    if (status === 'paid' || status === 'due') {
+      expenseData.status = status;
+    }
+    const expense = await Expense.create(expenseData);
 
     res.status(201).json(expense);
   } catch (error) {
@@ -59,15 +77,39 @@ export const updateExpense = async (req, res) => {
   try {
     const { category, budget, status, notes } = req.body;
 
-    const expense = await Expense.findOneAndUpdate(
-      { _id: req.params.id, userId: req.user._id },
-      { category, budget, status, notes },
-      { new: true, runValidators: true }
-    );
+    const files = Array.isArray(req.files) ? req.files : [];
+    const newDocuments = files.map(f => {
+      const pathParts = f.path.split('uploads');
+      const relative = pathParts.length > 1 ? `/uploads${pathParts[1].replace(/\\/g, '/')}` : f.path;
+      return {
+        filename: f.filename,
+        originalName: f.originalname,
+        path: relative,
+        size: f.size,
+        mimeType: f.mimetype,
+      };
+    });
 
+    const update = { category, budget, notes };
+    if (status === 'paid' || status === 'due') {
+      update.status = status;
+    } else if (status === '' || status === undefined) {
+      update.status = undefined; // leave as is; do not force
+    }
+
+    // Fetch, mutate (append documents), then save
+    const expense = await Expense.findOne({ _id: req.params.id, userId: req.user._id });
     if (!expense) {
       return res.status(404).json({ message: 'Expense not found' });
     }
+    if (newDocuments.length > 0) {
+      expense.documents = [...(expense.documents || []), ...newDocuments];
+    }
+    if (update.category !== undefined) expense.category = update.category;
+    if (update.budget !== undefined) expense.budget = update.budget;
+    if (update.notes !== undefined) expense.notes = update.notes;
+    if (update.status !== undefined) expense.status = update.status; // when omitted, keep previous
+    await expense.save();
 
     res.json(expense);
   } catch (error) {

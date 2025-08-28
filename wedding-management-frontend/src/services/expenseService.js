@@ -29,15 +29,19 @@ const getExpense = async (id, token) => {
   return response.data;
 };
 
-// Create new expense
+// Create new expense (supports FormData for file uploads)
 const createExpense = async (expenseData, token) => {
-  const response = await expenseAPI.post('/expenses', expenseData, authConfig(token));
+  const isFormData = typeof FormData !== 'undefined' && expenseData instanceof FormData;
+  const headers = isFormData ? { ...authConfig(token).headers, 'Content-Type': 'multipart/form-data' } : authConfig(token).headers;
+  const response = await expenseAPI.post('/expenses', expenseData, { headers });
   return response.data;
 };
 
 // Update expense
 const updateExpense = async (id, expenseData, token) => {
-  const response = await expenseAPI.put(`/expenses/${id}`, expenseData, authConfig(token));
+  const isFormData = typeof FormData !== 'undefined' && expenseData instanceof FormData;
+  const headers = isFormData ? { ...authConfig(token).headers, 'Content-Type': 'multipart/form-data' } : authConfig(token).headers;
+  const response = await expenseAPI.put(`/expenses/${id}`, expenseData, { headers });
   return response.data;
 };
 

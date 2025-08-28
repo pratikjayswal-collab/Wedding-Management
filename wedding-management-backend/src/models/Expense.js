@@ -30,7 +30,6 @@ const expenseSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: ['paid', 'due'],
-    default: 'due',
     index: true
   },
   notes: {
@@ -39,6 +38,16 @@ const expenseSchema = new mongoose.Schema({
     default: ''
   },
   items: [itemSchema],
+  documents: [
+    new mongoose.Schema({
+      filename: { type: String, required: true },
+      originalName: { type: String, required: true },
+      path: { type: String, required: true },
+      size: { type: Number, required: true },
+      mimeType: { type: String, required: true },
+      uploadedAt: { type: Date, default: Date.now }
+    }, { _id: false })
+  ],
   total: {
     type: Number,
     default: 0

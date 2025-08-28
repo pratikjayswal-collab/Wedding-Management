@@ -2,6 +2,8 @@ import express from "express";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // Import routes
 import userRoutes from "./routes/userRoutes.js";
@@ -16,6 +18,12 @@ const app = express();
 // Middleware
 app.use(express.json());
 app.use(cors());
+
+// Static uploads
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadsDir = path.join(__dirname, "..", "uploads");
+app.use("/uploads", express.static(uploadsDir));
 
 // Test route
 app.get("/", (req, res) => {

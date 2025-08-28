@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import useSpeechToText from '../hooks/useSpeechToText';
 import { useDispatch, useSelector } from 'react-redux';
 import { getRequirements, createRequirement, updateRequirement, deleteRequirement, toggleRequirementStatus, bulkUpdateRequirementStatus, getRequirementsByStatus } from '../store/slices/requirementSlice';
 import { openRequirementModal, toggleRequirementSelection, selectAllRequirements, clearRequirementSelection } from '../store/slices/uiSlice';
@@ -24,11 +23,64 @@ export default function RequirementsTab() {
     category: '',
     dueDate: ''
   });
+  const [isRecordingTask, setIsRecordingTask] = useState(false);
+  const [speechError, setSpeechError] = useState('');
 
-  const micTask = useSpeechToText({ 
-    lang: 'en-IN',
-    onResult: (t) => setFormData(prev => ({ ...prev, item: t })) 
-  });
+  // Gemini API speech-to-text functionality
+  const startRecording = async () => {
+    try {
+      setSpeechError('');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const chunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        try {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          const formData = new FormData();
+          formData.append('audio', blob, 'speech.webm');
+          formData.append('lang', 'en-IN');
+
+          const response = await fetch('http://localhost:5000/api/users/transcribe', {
+            method: 'POST',
+            body: formData,
+          });
+
+          const data = await response.json();
+          if (!response.ok) throw new Error(data?.message || 'Transcription failed');
+
+          if (data?.text) {
+            setFormData(prev => ({ ...prev, item: data.text }));
+          }
+        } catch (error) {
+          setSpeechError(`Transcription error: ${error.message}`);
+        } finally {
+          setIsRecordingTask(false);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecordingTask(true);
+
+      // Stop recording after 10 seconds
+      setTimeout(() => {
+        if (mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+          stream.getTracks().forEach(track => track.stop());
+        }
+      }, 10000);
+
+    } catch (error) {
+      setSpeechError('Microphone permission denied');
+      setIsRecordingTask(false);
+    }
+  };
 
   const dispatch = useDispatch();
   const { requirements, isLoading, error } = useSelector((state) => state.requirement);
@@ -184,22 +236,22 @@ export default function RequirementsTab() {
                   />
                   <button
   type="button"
-  onClick={() => micTask.isListening ? micTask.stop() : micTask.start()}
-  disabled={!micTask.supported}
+  onClick={() => isRecordingTask ? null : startRecording()}
+  disabled={!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || isRecordingTask}
   className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all duration-200 ${
-    micTask.isListening 
+    isRecordingTask 
       ? 'bg-red-100 hover:bg-red-200 text-red-600' 
       : 'hover:bg-gray-50 text-gray-600'
-  } ${!micTask.supported ? 'opacity-50 cursor-not-allowed' : ''}`}
+  } ${!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia ? 'opacity-50 cursor-not-allowed' : ''}`}
   title={
-    !micTask.supported 
-      ? 'Speech recognition not supported' 
-      : micTask.isListening 
-      ? 'Stop listening' 
+    !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia 
+      ? 'Microphone not available' 
+      : isRecordingTask 
+      ? 'Stop recording' 
       : 'Start speaking'
   }
 >
-  {micTask.isListening ? (
+  {isRecordingTask ? (
     <div className="relative">
       <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24" className="w-5 h-5">
         <path d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9A2.25 2.25 0 0118.75 7.5v9A2.25 2.25 0 0116.5 18.75h-9A2.25 2.25 0 015.25 16.5v-9z" />
@@ -503,37 +555,27 @@ export default function RequirementsTab() {
                       )}
                     </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex gap-2 mt-4">
-                      <button
-                        onClick={async () => {
-                          try {
-                            await dispatch(toggleRequirementStatus(requirement._id)).unwrap();
-                          } catch (err) {
-                            console.error('Failed to toggle status:', err);
-                          }
-                        }}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors duration-200 ${
-                          requirement.status === 'done'
-                            ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
-                            : 'bg-green-100 text-green-700 hover:bg-green-200'
-                        }`}
-                      >
-                        {requirement.status === 'done' ? 'Mark Pending' : 'Mark Complete'}
-                      </button>
-
+                    {/* Action Icons */}
+                    <div className="flex gap-2 mt-4 justify-end">
                       <button
                         onClick={() => startEditRequirement(requirement)}
-                        className="px-3 py-1 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-lg text-xs font-medium transition-colors duration-200"
+                        className="text-blue-600 hover:text-blue-700 transition-colors duration-200"
+                        title="Edit"
+                        aria-label="Edit task"
                       >
-                        Edit
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
                       </button>
-
                       <button
                         onClick={() => handleDeleteRequirement(requirement._id)}
-                        className="px-3 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded-lg text-xs font-medium transition-colors duration-200"
+                        className="text-red-600 hover:text-red-700 transition-colors duration-200"
+                        title="Delete"
+                        aria-label="Delete task"
                       >
-                        Delete
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
                       </button>
                     </div>
                   </>

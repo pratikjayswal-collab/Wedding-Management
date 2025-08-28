@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import useSpeechToText from '../hooks/useSpeechToText';
 import { useDispatch, useSelector } from 'react-redux';
 import { getExpenses, createExpense, updateExpense, deleteExpense, addExpenseItem, updateExpenseItem, deleteExpenseItem, getExpenseChartData } from '../store/slices/expenseSlice';
 import { openExpenseModal, openExpenseItemModal } from '../store/slices/uiSlice';
@@ -11,24 +10,79 @@ export default function ExpensesTab() {
   const [amountRange, setAmountRange] = useState('all');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState(null);
-  const [categoryEdits, setCategoryEdits] = useState({ category: '', budget: 0, status: 'due', notes: '' });
+  const [categoryEdits, setCategoryEdits] = useState({ category: '', budget: 0, status: '', notes: '', editDocuments: [] });
   const [editingItem, setEditingItem] = useState({ expenseId: null, itemId: null });
   const [itemEdits, setItemEdits] = useState({ name: '', cost: 0, description: '' });
+  const [expandedDocsByExpenseId, setExpandedDocsByExpenseId] = useState({});
   const [formData, setFormData] = useState({
     category: '',
     budget: 0,
-    status: 'due',
-    notes: ''
+    status: '',
+    notes: '',
+    documents: []
   });
+  const [isRecordingCategory, setIsRecordingCategory] = useState(false);
+  const [speechError, setSpeechError] = useState('');
 
   const dispatch = useDispatch();
   const { expenses, chartData, isLoading, error } = useSelector((state) => state.expense);
   const { isExpenseModalOpen, isExpenseItemModalOpen } = useSelector((state) => state.ui);
 
-  const micCategory = useSpeechToText({ 
-    lang: 'en-IN',
-    onResult: (t) => setFormData(prev => ({ ...prev, category: t })) 
-  });
+  // Gemini API speech-to-text functionality
+  const startRecording = async () => {
+    try {
+      setSpeechError('');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const chunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        try {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          const formData = new FormData();
+          formData.append('audio', blob, 'speech.webm');
+          formData.append('lang', 'en-IN');
+
+          const response = await fetch('http://localhost:5000/api/users/transcribe', {
+            method: 'POST',
+            body: formData,
+          });
+
+          const data = await response.json();
+          if (!response.ok) throw new Error(data?.message || 'Transcription failed');
+
+          if (data?.text) {
+            setFormData(prev => ({ ...prev, category: data.text }));
+          }
+        } catch (error) {
+          setSpeechError(`Transcription error: ${error.message}`);
+        } finally {
+          setIsRecordingCategory(false);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecordingCategory(true);
+
+      // Stop recording after 10 seconds
+      setTimeout(() => {
+        if (mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+          stream.getTracks().forEach(track => track.stop());
+        }
+      }, 10000);
+
+    } catch (error) {
+      setSpeechError('Microphone permission denied');
+      setIsRecordingCategory(false);
+    }
+  };
 
   useEffect(() => {
     dispatch(getExpenses());
@@ -40,8 +94,16 @@ export default function ExpensesTab() {
     if (!formData.category.trim()) return;
 
     try {
-      await dispatch(createExpense(formData)).unwrap();
-      setFormData({ category: '', budget: 0, status: 'due', notes: '' });
+      const fd = new FormData();
+      fd.append('category', formData.category);
+      fd.append('budget', formData.budget ?? 0);
+      if (formData.status) fd.append('status', formData.status);
+      fd.append('notes', formData.notes ?? '');
+      for (const file of formData.documents) {
+        fd.append('documents', file);
+      }
+      await dispatch(createExpense(fd)).unwrap();
+      setFormData({ category: '', budget: 0, status: '', notes: '', documents: [] });
       setShowAddForm(false);
     } catch (err) {
       console.error('Failed to create expense category:', err);
@@ -63,8 +125,9 @@ export default function ExpensesTab() {
     setCategoryEdits({
       category: expense.category || '',
       budget: expense.budget || 0,
-      status: expense.status || 'due',
-      notes: expense.notes || ''
+      status: expense.status || '',
+      notes: expense.notes || '',
+      editDocuments: []
     });
   };
 
@@ -74,8 +137,22 @@ export default function ExpensesTab() {
 
   const saveEditCategory = async (expenseId) => {
     try {
-      await dispatch(updateExpense({ id: expenseId, expenseData: categoryEdits })).unwrap();
+      // If user attached new files during edit, send multipart; otherwise JSON
+      let payload = categoryEdits;
+      if (categoryEdits.editDocuments && categoryEdits.editDocuments.length > 0) {
+        const fd = new FormData();
+        fd.append('category', categoryEdits.category);
+        fd.append('budget', categoryEdits.budget ?? 0);
+        if (categoryEdits.status) fd.append('status', categoryEdits.status);
+        fd.append('notes', categoryEdits.notes ?? '');
+        for (const file of categoryEdits.editDocuments) {
+          fd.append('documents', file);
+        }
+        payload = fd;
+      }
+      await dispatch(updateExpense({ id: expenseId, expenseData: payload })).unwrap();
       setEditingCategoryId(null);
+      setExpandedDocsByExpenseId(prev => ({ ...prev, [expenseId]: true }));
     } catch (err) {
       console.error('Failed to update category:', err);
     }
@@ -107,7 +184,7 @@ export default function ExpensesTab() {
 
   const filteredExpenses = expenses.filter(expense => {
     const matchesSearch = expense.category.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || (expense.status || 'due') === statusFilter;
+    const matchesStatus = statusFilter === 'all' || (expense.status || '') === statusFilter;
     const amount = Number(expense.budget || 0);
     let matchesRange = true;
     switch (amountRange) {
@@ -169,22 +246,29 @@ export default function ExpensesTab() {
                   />
                   <button 
                     type="button" 
-                    onClick={micCategory.isListening ? micCategory.stop : micCategory.start} 
-                    disabled={!micCategory.supported}
+                    onClick={isRecordingCategory ? () => {
+                      setIsRecordingCategory(false);
+                      // Stop the ongoing recording if any
+                      if (window.mediaRecorder && window.mediaRecorder.state !== 'inactive') {
+                        window.mediaRecorder.stop();
+                        window.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                      }
+                    } : startRecording} 
+                    disabled={!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !navigator.mediaDevices.getUserMedia({ audio: true })}
                     className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all duration-200 ${
-                      micCategory.isListening 
+                      isRecordingCategory 
                         ? 'bg-red-100 hover:bg-red-200 text-red-600' 
                         : 'hover:bg-gray-50 text-gray-600'
-                    } ${!micCategory.supported ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    title={
-                      !micCategory.supported 
-                        ? 'Speech recognition not supported' 
-                        : micCategory.isListening 
-                        ? 'Stop listening' 
-                        : 'Start speaking'
-                    }
+                    } ${!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !navigator.mediaDevices.getUserMedia({ audio: true }) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                          title={
+                        !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !navigator.mediaDevices.getUserMedia({ audio: true }) 
+                          ? 'Microphone not available' 
+                          : isRecordingCategory 
+                          ? 'Stop recording' 
+                          : 'Start speaking'
+                      }
                   >
-                    {micCategory.isListening ? (
+                    {isRecordingCategory ? (
                       <div className="relative">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                           <path d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9A2.25 2.25 0 0118.75 7.5v9A2.25 2.25 0 0116.5 18.75h-9A2.25 2.25 0 015.25 16.5v-9z" />
@@ -200,9 +284,9 @@ export default function ExpensesTab() {
                     )}
                   </button>
                 </div>
-                {micCategory.error && (
+                {speechError && (
                   <p className="mt-1 text-sm text-amber-600">
-                    Speech Error: {micCategory.error}
+                    Speech Error: {speechError}
                   </p>
                 )}
               </div>
@@ -232,6 +316,7 @@ export default function ExpensesTab() {
                   onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
                 >
+                  <option value="">None</option>
                   <option value="due">Due</option>
                   <option value="paid">Paid</option>
                 </select>
@@ -245,6 +330,16 @@ export default function ExpensesTab() {
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
                   placeholder="Any notes about this category"
                 />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Documents</label>
+                <input
+                  type="file"
+                  multiple
+                  onChange={(e) => setFormData({ ...formData, documents: Array.from(e.target.files || []) })}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+                />
+                <p className="text-xs text-gray-500 mt-1">You can upload multiple files (PDFs, images, etc.).</p>
               </div>
             </div>
             <div className="flex gap-3">
@@ -387,7 +482,7 @@ export default function ExpensesTab() {
       <div className="space-y-1 sm:space-y-4">
         {filteredExpenses.map((expense) => (
           <div key={expense._id} className="bg-white rounded-2xl shadow-lg border border-gray-100 p-3 sm:p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 mb-4">
+            <div className="flex items-start justify-between gap-2 sm:flex-row sm:items-center sm:gap-4 mb-4">
               <div className="flex-1 min-w-0">
                 {editingCategoryId === expense._id ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -418,6 +513,7 @@ export default function ExpensesTab() {
                         onChange={(e) => setCategoryEdits({ ...categoryEdits, status: e.target.value })}
                         className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
                       >
+                        <option value="">None</option>
                         <option value="due">Due</option>
                         <option value="paid">Paid</option>
                       </select>
@@ -431,6 +527,16 @@ export default function ExpensesTab() {
                         className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
                       />
                     </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Add Documents</label>
+                      <input
+                        type="file"
+                        multiple
+                        onChange={(e) => setCategoryEdits({ ...categoryEdits, editDocuments: Array.from(e.target.files || []) })}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-300"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Uploading here will append files to this expense.</p>
+                    </div>
                     <div className="flex gap-2 sm:col-span-2">
                       <button onClick={() => saveEditCategory(expense._id)} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors duration-200">Save</button>
                       <button onClick={cancelEditCategory} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors duration-200">Cancel</button>
@@ -440,33 +546,85 @@ export default function ExpensesTab() {
                   <div>
                     <div className="flex items-center gap-3 flex-wrap">
                       <h3 className="text-xl font-semibold text-gray-800">{expense.category}</h3>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${expense.status === 'paid' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
-                        {expense.status === 'paid' ? 'Paid' : 'Due'}
-                      </span>
+                      {expense.status && (
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${expense.status === 'paid' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
+                          {expense.status === 'paid' ? 'Paid' : 'Due'}
+                        </span>
+                      )}
                     </div>
                     <p className="text-gray-600">Expense: ₹{expense.budget?.toLocaleString() || '0'}</p>
                     {expense.notes ? <p className="text-sm text-gray-500 mt-1">{expense.notes}</p> : null}
                   </div>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {editingCategoryId === expense._id ? null : (
                   <button
                     onClick={() => startEditCategory(expense)}
-                    className="px-2 py-1 bg-gray-500 hover:bg-gray-600 text-sm text-white rounded-2xl font-medium transition-colors duration-200"
+                    className="text-blue-600 hover:text-blue-700 transition-colors duration-200"
+                    title="Edit"
+                    aria-label="Edit expense"
                   >
-                    Edit
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
                   </button>
                 )}
-                <button
-                  onClick={() => handleDeleteExpense(expense._id)}
-                  className="px-2 py-1 bg-red-500 hover:bg-red-600 text-sm text-white rounded-2xl font-medium transition-colors duration-200"
-                >
-                  Delete
-                </button>
+                {editingCategoryId === expense._id ? null : (
+                  <button
+                    onClick={() => handleDeleteExpense(expense._id)}
+                    className="text-red-600 hover:text-red-700 transition-colors duration-200"
+                    title="Delete"
+                    aria-label="Delete expense"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                )}
               </div>
             </div>
 
+
+            {/* Files toggle at bottom */}
+            {editingCategoryId !== expense._id && Array.isArray(expense.documents) && expense.documents.length > 0 && (
+              <div className="mt-2">
+                <button
+                  onClick={() => setExpandedDocsByExpenseId(prev => ({ ...prev, [expense._id]: !prev[expense._id] }))}
+                  className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-2xl font-medium transition-colors duration-200 flex items-center gap-1"
+                  title={expandedDocsByExpenseId[expense._id] ? 'Hide documents' : 'Show documents'}
+                >
+                  <svg className={`w-4 h-4 transition-transform ${expandedDocsByExpenseId[expense._id] ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                  <span>Files ({expense.documents.length})</span>
+                </button>
+              </div>
+            )}
+
+            {/* Documents (expandable per card) */}
+            {expandedDocsByExpenseId[expense._id] && Array.isArray(expense.documents) && expense.documents.length > 0 && (
+              <div className="mt-2">
+                <h4 className="font-medium text-gray-700 mb-2">Documents</h4>
+                <div className="flex flex-wrap gap-2">
+                  {expense.documents.map((doc, idx) => (
+                    <a
+                      key={idx}
+                      href={`http://localhost:5000${doc.path}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg text-sm text-gray-700"
+                      download={doc.originalName}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+                      </svg>
+                      <span className="truncate max-w-[180px]" title={doc.originalName}>{doc.originalName}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Expense Items */}
             {expense.items && expense.items.length > 0 && (
@@ -555,6 +713,7 @@ export default function ExpensesTab() {
             )}
           </div>
         ))}
+
 
         {filteredExpenses.length === 0 && (
           <div className="text-center py-12">
